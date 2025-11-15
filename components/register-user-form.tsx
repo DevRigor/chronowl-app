@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { db } from '@/lib/firebase'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import {
   Select,
@@ -27,41 +27,50 @@ export function RegisterUserForm({ onSuccess }: RegisterUserFormProps) {
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
+  e.preventDefault()
+  setError('')
 
-    if (!displayName.trim() || !email.trim()) {
-      setError('Nombre y email son requeridos')
-      return
-    }
+  if (!displayName.trim() || !email.trim()) {
+    setError('Nombre y email son requeridos')
+    return
+  }
 
-    if (!email.includes('@')) {
-      setError('Email inválido')
-      return
-    }
+  const normalizedEmail = email.trim().toLowerCase()
 
-    setLoading(true)
+  if (!normalizedEmail.includes('@')) {
+    setError('Email inválido')
+    return
+  }
 
-    try {
-      // Create user document in Firestore
-      await addDoc(collection(db, 'users'), {
+  setLoading(true)
+
+  try {
+    // ID del documento = email normalizado
+    const userRef = doc(db, 'users', normalizedEmail)
+
+    await setDoc(
+      userRef,
+      {
         displayName: displayName.trim(),
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         role,
         isActive: true,
         createdAt: serverTimestamp(),
-      })
+      },
+      { merge: true } // por si ya existe, no revienta
+    )
 
-      setDisplayName('')
-      setEmail('')
-      setRole('user')
-      onSuccess?.()
-    } catch (err: any) {
-      setError(err.message || 'Error al registrar usuario')
-    } finally {
-      setLoading(false)
-    }
+    setDisplayName('')
+    setEmail('')
+    setRole('user')
+    onSuccess?.()
+  } catch (err: any) {
+    console.error(err)
+    setError(err.message || 'Error al registrar usuario')
+  } finally {
+    setLoading(false)
   }
+}
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
