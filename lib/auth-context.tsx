@@ -28,35 +28,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid))
-          if (userDoc.exists()) {
-            const data = userDoc.data()
-            
-            if (!data.isActive) {
-              setError('Tu cuenta ha sido desactivada')
-              setUser(null)
-            } else {
-              setUser({
-                ...firebaseUser,
-                role: data.role || 'user',
-                displayName: data.displayName || firebaseUser.displayName,
-                isActive: data.isActive !== false,
-              } as AppUser)
-            }
-          } else {
-            setError('Usuario no existe en la base de datos')
-            setUser(null)
-          }
-        } catch (err) {
-          setError('Error al cargar el usuario')
-          console.error(err)
+      setLoading(true)
+      setError(null)
+
+      try {
+        if (!firebaseUser) {
+          setUser(null)
+          setLoading(false)
+          return
         }
-      } else {
+
+        const uid = firebaseUser.uid
+        const email = firebaseUser.email?.toLowerCase() || null
+
+        let userDoc = null
+
+        // 1) Intentar buscar por UID (caso admin: docId = uid)
+        const uidRef = doc(db, 'users', uid)
+        let snap = await getDoc(uidRef)
+
+        // 2) Si no existe y tenemos email, buscar por email (docId = email)
+        if (!snap.exists() && email) {
+          const emailRef = doc(db, 'users', email)
+          snap = await getDoc(emailRef)
+        }
+
+        if (!snap.exists()) {
+          setError('Tu correo no está registrado en el sistema. Contacta a un administrador.')
+          setUser(null)
+          setLoading(false)
+          return
+        }
+
+        userDoc = snap.data() as any
+
+        if (userDoc.isActive === false) {
+          setError('Tu cuenta ha sido desactivada. Contacta a un administrador.')
+          setUser(null)
+          setLoading(false)
+          return
+        }
+
+        setUser({
+          ...firebaseUser,
+          role: (userDoc.role as UserRole) || 'user',
+          displayName: (userDoc.displayName as string) || firebaseUser.displayName,
+          isActive: userDoc.isActive !== false,
+        } as AppUser)
+      } catch (err) {
+        console.error(err)
+        setError('Error al cargar el usuario')
         setUser(null)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     })
 
     return () => unsubscribe()
