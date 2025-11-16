@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { db } from '@/lib/firebase'
-import { collection, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import {
   Select,
@@ -27,50 +27,44 @@ export function RegisterUserForm({ onSuccess }: RegisterUserFormProps) {
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  setError('')
+    e.preventDefault()
+    setError('')
 
-  if (!displayName.trim() || !email.trim()) {
-    setError('Nombre y email son requeridos')
-    return
-  }
+    if (!displayName.trim() || !email.trim()) {
+      setError('Nombre y email son requeridos')
+      return
+    }
 
-  const normalizedEmail = email.trim().toLowerCase()
+    if (!email.includes('@')) {
+      setError('Email inválido')
+      return
+    }
 
-  if (!normalizedEmail.includes('@')) {
-    setError('Email inválido')
-    return
-  }
+    setLoading(true)
 
-  setLoading(true)
+    try {
+      const emailLower = email.trim().toLowerCase()
 
-  try {
-    // ID del documento = email normalizado
-    const userRef = doc(db, 'users', normalizedEmail)
-
-    await setDoc(
-      userRef,
-      {
+      // Creamos / sobrescribimos el doc con ID = email en minúsculas
+      await setDoc(doc(db, 'users', emailLower), {
         displayName: displayName.trim(),
-        email: normalizedEmail,
+        email: emailLower,
         role,
         isActive: true,
         createdAt: serverTimestamp(),
-      },
-      { merge: true } // por si ya existe, no revienta
-    )
+      })
 
-    setDisplayName('')
-    setEmail('')
-    setRole('user')
-    onSuccess?.()
-  } catch (err: any) {
-    console.error(err)
-    setError(err.message || 'Error al registrar usuario')
-  } finally {
-    setLoading(false)
+      setDisplayName('')
+      setEmail('')
+      setRole('user')
+      onSuccess?.()
+    } catch (err: any) {
+      console.error('[register-user] Error:', err)
+      setError(err.message || 'Error al registrar usuario')
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -101,7 +95,7 @@ export function RegisterUserForm({ onSuccess }: RegisterUserFormProps) {
         <label className="text-sm font-medium">Rol</label>
         <Select value={role} onValueChange={(value) => setRole(value as 'user' | 'admin')}>
           <SelectTrigger disabled={loading}>
-            <SelectValue />
+            <SelectValue placeholder="Selecciona un rol" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="user">Usuario</SelectItem>

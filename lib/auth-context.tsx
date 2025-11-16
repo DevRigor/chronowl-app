@@ -3,7 +3,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { auth, db } from './firebase'
 import { onAuthStateChanged, User } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore'
 
 export type UserRole = 'admin' | 'user'
 
@@ -33,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (!firebaseUser) {
+          console.log('[auth] no firebaseUser')
           setUser(null)
           setLoading(false)
           return
@@ -41,26 +49,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const uid = firebaseUser.uid
         const email = firebaseUser.email?.toLowerCase() || null
 
-        let userDoc = null
+        console.log('[auth] uid:', uid, 'email:', email)
 
-        // 1) Intentar buscar por UID (caso admin: docId = uid)
-        const uidRef = doc(db, 'users', uid)
-        let snap = await getDoc(uidRef)
+        let snap = await getDoc(doc(db, 'users', uid)) // caso admin sembrado
 
-        // 2) Si no existe y tenemos email, buscar por email (docId = email)
+        // 2) Si no existe por UID y tenemos email, buscar por ID = email
         if (!snap.exists() && email) {
-          const emailRef = doc(db, 'users', email)
-          snap = await getDoc(emailRef)
+          snap = await getDoc(doc(db, 'users', email))
+        }
+
+        // 3) Fallback opcional: buscar por campo email si el ID fuera aleatorio
+        if (!snap.exists() && email) {
+          const usersRef = collection(db, 'users')
+          const q = query(usersRef, where('email', '==', email))
+          const qSnap = await getDocs(q)
+          if (!qSnap.empty) {
+            snap = qSnap.docs[0]
+          }
         }
 
         if (!snap.exists()) {
+          console.log('[auth] user doc not found')
           setError('Tu correo no está registrado en el sistema. Contacta a un administrador.')
           setUser(null)
           setLoading(false)
           return
         }
 
-        userDoc = snap.data() as any
+        const userDoc = snap.data() as any
+        console.log('[auth] userDoc:', userDoc)
 
         if (userDoc.isActive === false) {
           setError('Tu cuenta ha sido desactivada. Contacta a un administrador.')
@@ -76,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isActive: userDoc.isActive !== false,
         } as AppUser)
       } catch (err) {
-        console.error(err)
+        console.error('[auth] Error loading user:', err)
         setError('Error al cargar el usuario')
         setUser(null)
       } finally {

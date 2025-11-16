@@ -3,13 +3,30 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth'
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+} from 'firebase/auth'
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+} from 'firebase/firestore'
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore'
 import { AlertCircle } from 'lucide-react'
 
 export default function LoginPage() {
@@ -20,6 +37,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
+  // (si más adelante quieres usar login/registro por password, ya están listos)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -43,11 +61,13 @@ export default function LoginPage() {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password)
       await updateProfile(result.user, { displayName })
-      
-      // Crear documento de usuario en Firestore
+
+      const emailLower = email.trim().toLowerCase()
+
+      // crear doc del usuario con id = UID (para este flujo)
       await setDoc(doc(db, 'users', result.user.uid), {
-        email,
-        displayName,
+        email: emailLower,
+        displayName: displayName.trim(),
         role: 'user',
         isActive: true,
         createdAt: serverTimestamp(),
@@ -71,25 +91,55 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider)
       const user = result.user
 
-      const userDoc = await getDoc(doc(db, 'users', user.uid))
-      
-      if (!userDoc.exists()) {
+      if (!user.email) {
+        throw new Error('Tu cuenta de Google no tiene un email asociado.')
+      }
+
+      const uid = user.uid
+      const emailLower = user.email.toLowerCase()
+
+      console.log('[login] uid:', uid, 'email:', emailLower)
+
+      // 1) Intentar por UID (caso admin con docId = uid)
+      let snap = await getDoc(doc(db, 'users', uid))
+
+      // 2) Si no existe, intentar por ID = email
+      if (!snap.exists()) {
+        snap = await getDoc(doc(db, 'users', emailLower))
+      }
+
+      // 3) Fallback extra: por campo email (por si quedara algún doc con ID random)
+      if (!snap.exists()) {
+        const usersRef = collection(db, 'users')
+        const q = query(usersRef, where('email', '==', emailLower))
+        const qSnap = await getDocs(q)
+        if (!qSnap.empty) {
+          snap = qSnap.docs[0]
+        }
+      }
+
+      if (!snap.exists()) {
+        console.log('[login] No user doc found for this account')
         await signOut(auth)
         setError('Tu correo no está registrado en el sistema. Contacta a un administrador.')
         return
       }
 
-      const userData = userDoc.data()
-      
-      if (!userData.isActive) {
+      const userData = snap.data() as any
+      console.log('[login] userDoc:', userData)
+
+      if (userData.isActive === false) {
         await signOut(auth)
         setError('Tu cuenta ha sido desactivada. Contacta a un administrador.')
         return
       }
 
+      // Todo OK: dejamos que AuthContext termine de cargar y vamos al dashboard
       router.push('/dashboard')
     } catch (err: any) {
+      console.error('[login] Error al iniciar sesión con Google:', err)
       setError(err.message || 'Error al iniciar sesión con Google')
+      await signOut(auth)
     } finally {
       setLoading(false)
     }
@@ -111,7 +161,7 @@ export default function LoginPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          
+
           <Button
             type="button"
             className="w-full"
