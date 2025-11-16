@@ -1,20 +1,16 @@
+// app/login/page.tsx
 'use client'
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { auth, db } from '@/lib/firebase'
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile,
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
 } from 'firebase/auth'
 import {
   doc,
-  setDoc,
-  serverTimestamp,
   getDoc,
   collection,
   query,
@@ -22,65 +18,22 @@ import {
   getDocs,
 } from 'firebase/firestore'
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AlertCircle } from 'lucide-react'
+import { normalizeEmail } from '@/lib/email'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-
-  // (si más adelante quieres usar login/registro por password, ya están listos)
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    try {
-      await signInWithEmailAndPassword(auth, email, password)
-      router.push('/dashboard')
-    } catch (err: any) {
-      setError(err.message || 'Error en el login')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    try {
-      const result = await createUserWithEmailAndPassword(auth, email, password)
-      await updateProfile(result.user, { displayName })
-
-      const emailLower = email.trim().toLowerCase()
-
-      // crear doc del usuario con id = UID (para este flujo)
-      await setDoc(doc(db, 'users', result.user.uid), {
-        email: emailLower,
-        displayName: displayName.trim(),
-        role: 'user',
-        isActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-
-      router.push('/dashboard')
-    } catch (err: any) {
-      setError(err.message || 'Error en el registro')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleGoogleLogin = async () => {
     setError('')
@@ -91,28 +44,32 @@ export default function LoginPage() {
       const result = await signInWithPopup(auth, provider)
       const user = result.user
 
+      console.log('[login] raw user email:', user.email)
+
       if (!user.email) {
         throw new Error('Tu cuenta de Google no tiene un email asociado.')
       }
 
       const uid = user.uid
-      const emailLower = user.email.toLowerCase()
+      const normalizedEmail = normalizeEmail(user.email)
 
-      console.log('[login] uid:', uid, 'email:', emailLower)
+      console.log('[login] uid:', uid)
+      console.log('[login] normalizedEmail:', normalizedEmail)
 
-      // 1) Intentar por UID (caso admin con docId = uid)
+      // 1) Buscar por UID (admin sembrado)
       let snap = await getDoc(doc(db, 'users', uid))
 
-      // 2) Si no existe, intentar por ID = email
+      // 2) Buscar por ID = email normalizado
       if (!snap.exists()) {
-        snap = await getDoc(doc(db, 'users', emailLower))
+        snap = await getDoc(doc(db, 'users', normalizedEmail))
       }
 
-      // 3) Fallback extra: por campo email (por si quedara algún doc con ID random)
+      // 3) Fallback: buscar por campo email normalizado
       if (!snap.exists()) {
         const usersRef = collection(db, 'users')
-        const q = query(usersRef, where('email', '==', emailLower))
+        const q = query(usersRef, where('email', '==', normalizedEmail))
         const qSnap = await getDocs(q)
+
         if (!qSnap.empty) {
           snap = qSnap.docs[0]
         }
@@ -134,7 +91,7 @@ export default function LoginPage() {
         return
       }
 
-      // Todo OK: dejamos que AuthContext termine de cargar y vamos al dashboard
+      // Todo OK → AuthContext cargará los datos y vas al dashboard
       router.push('/dashboard')
     } catch (err: any) {
       console.error('[login] Error al iniciar sesión con Google:', err)

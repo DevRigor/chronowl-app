@@ -1,3 +1,4 @@
+// components/register-user-form.tsx
 'use client'
 
 import { useState } from 'react'
@@ -14,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { normalizeEmail } from '@/lib/email'
 
 interface RegisterUserFormProps {
   onSuccess?: () => void
@@ -43,12 +45,14 @@ export function RegisterUserForm({ onSuccess }: RegisterUserFormProps) {
     setLoading(true)
 
     try {
-      const emailLower = email.trim().toLowerCase()
+      const normalizedEmail = normalizeEmail(email)
 
-      // Creamos / sobrescribimos el doc con ID = email en minúsculas
-      await setDoc(doc(db, 'users', emailLower), {
+      console.log('[register-user] normalizedEmail:', normalizedEmail)
+
+      // Documento en /users/{email-normalizado}
+      await setDoc(doc(db, 'users', normalizedEmail), {
         displayName: displayName.trim(),
-        email: emailLower,
+        email: normalizedEmail,
         role,
         isActive: true,
         createdAt: serverTimestamp(),

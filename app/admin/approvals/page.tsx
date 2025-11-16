@@ -1,18 +1,18 @@
 'use client'
 
-import { ProtectedLayout } from '@/components/protected-layout'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { useAuth } from '@/lib/auth-context'
-import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
-import { Loader2, Check, X } from 'lucide-react'
-import { AlertCircle } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useRouter } from 'next/navigation'
+import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { useAuth } from '@/lib/auth-context'
+
+import { ProtectedLayout } from '@/components/protected-layout'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+import { Loader2, Check, X, AlertCircle } from 'lucide-react'
 
 interface PendingEntry {
   id: string
@@ -53,41 +53,47 @@ export default function AdminApprovalsPage() {
 
   const fetchPending = async () => {
     try {
-      // Fetch pending work entries
+      setLoading(true)
+
+      // ---- Horas pendientes ----
       const entriesRef = collection(db, 'workEntries')
       const entriesQuery = query(entriesRef, where('status', '==', 'pending'))
       const entriesSnap = await getDocs(entriesQuery)
-      
-      const entriesWithNames = await Promise.all(
-        entriesSnap.docs.map(async (doc) => {
-          const data = doc.data()
-          const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', data.userId)))
-          const userName = userDoc.docs[0]?.data().displayName || data.userId
-          return {
-            id: doc.id,
-            userName,
-            ...data,
-          } as PendingEntry
-        })
-      )
 
-      // Fetch pending absences
+      const entriesWithNames: PendingEntry[] = entriesSnap.docs.map((docSnap) => {
+        const data = docSnap.data() as any
+        return {
+          id: docSnap.id,
+          userId: data.userId,
+          userName: data.userName || data.userEmail || data.userId, // 👈 usamos lo que venga
+          type: data.type,
+          hours: data.hours,
+          date: data.date,
+          description: data.description || '',
+          status: data.status,
+          createdAt: data.createdAt,
+        }
+      })
+
+      // ---- Ausencias pendientes ----
       const absencesRef = collection(db, 'absences')
       const absencesQuery = query(absencesRef, where('status', '==', 'pending'))
       const absencesSnap = await getDocs(absencesQuery)
 
-      const absencesWithNames = await Promise.all(
-        absencesSnap.docs.map(async (doc) => {
-          const data = doc.data()
-          const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', data.userId)))
-          const userName = userDoc.docs[0]?.data().displayName || data.userId
-          return {
-            id: doc.id,
-            userName,
-            ...data,
-          } as PendingAbsence
-        })
-      )
+      const absencesWithNames: PendingAbsence[] = absencesSnap.docs.map((docSnap) => {
+        const data = docSnap.data() as any
+        return {
+          id: docSnap.id,
+          userId: data.userId,
+          userName: data.userName || data.userEmail || data.userId, // 👈 idem
+          type: data.type,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          description: data.description || '',
+          status: data.status,
+          createdAt: data.createdAt,
+        }
+      })
 
       setPendingEntries(entriesWithNames)
       setPendingAbsences(absencesWithNames)
@@ -104,7 +110,7 @@ export default function AdminApprovalsPage() {
     }
   }, [user])
 
-  const handleApproveEntry = async (id: string, userId: string) => {
+  const handleApproveEntry = async (id: string) => {
     try {
       await updateDoc(doc(db, 'workEntries', id), {
         status: 'approved',
@@ -113,7 +119,7 @@ export default function AdminApprovalsPage() {
       })
       fetchPending()
     } catch (error) {
-      console.error('Error approving:', error)
+      console.error('Error approving entry:', error)
     }
   }
 
@@ -126,7 +132,7 @@ export default function AdminApprovalsPage() {
       })
       fetchPending()
     } catch (error) {
-      console.error('Error rejecting:', error)
+      console.error('Error rejecting entry:', error)
     }
   }
 
@@ -139,7 +145,7 @@ export default function AdminApprovalsPage() {
       })
       fetchPending()
     } catch (error) {
-      console.error('Error approving:', error)
+      console.error('Error approving absence:', error)
     }
   }
 
@@ -152,7 +158,7 @@ export default function AdminApprovalsPage() {
       })
       fetchPending()
     } catch (error) {
-      console.error('Error rejecting:', error)
+      console.error('Error rejecting absence:', error)
     }
   }
 
@@ -196,6 +202,7 @@ export default function AdminApprovalsPage() {
             </TabsTrigger>
           </TabsList>
 
+          {/* HORAS */}
           <TabsContent value="entries">
             <Card>
               <CardHeader>
@@ -214,7 +221,9 @@ export default function AdminApprovalsPage() {
                             <p className="text-sm text-muted-foreground">
                               {entry.type === 'earned' ? 'Horas Ganadas' : 'Horas Usadas'} - {entry.hours}h
                             </p>
-                            <p className="text-sm mt-1">{entry.description}</p>
+                            {entry.description && (
+                              <p className="text-sm mt-1">{entry.description}</p>
+                            )}
                             <p className="text-xs text-muted-foreground mt-1">
                               {entry.date?.toDate().toLocaleDateString('es-ES')}
                             </p>
@@ -223,7 +232,7 @@ export default function AdminApprovalsPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handleApproveEntry(entry.id, entry.userId)}
+                              onClick={() => handleApproveEntry(entry.id)}
                             >
                               <Check className="w-4 h-4" />
                             </Button>
@@ -244,6 +253,7 @@ export default function AdminApprovalsPage() {
             </Card>
           </TabsContent>
 
+          {/* AUSENCIAS */}
           <TabsContent value="absences">
             <Card>
               <CardHeader>

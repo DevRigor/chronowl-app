@@ -1,3 +1,4 @@
+// lib/auth-context.tsx
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
@@ -11,6 +12,7 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore'
+import { normalizeEmail } from './email'
 
 export type UserRole = 'admin' | 'user'
 
@@ -40,36 +42,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (!firebaseUser) {
-          console.log('[auth] no firebaseUser')
+          console.log('[auth] No firebaseUser')
           setUser(null)
           setLoading(false)
           return
         }
 
         const uid = firebaseUser.uid
-        const email = firebaseUser.email?.toLowerCase() || null
+        const rawEmail = firebaseUser.email
+        const normalizedEmail = rawEmail ? normalizeEmail(rawEmail) : null
 
-        console.log('[auth] uid:', uid, 'email:', email)
+        console.log('[auth] uid:', uid)
+        console.log('[auth] rawEmail:', rawEmail)
+        console.log('[auth] normalizedEmail:', normalizedEmail)
 
-        let snap = await getDoc(doc(db, 'users', uid)) // caso admin sembrado
+        // 1) Intentar por UID (admin "sembrado")
+        let snap = await getDoc(doc(db, 'users', uid))
 
-        // 2) Si no existe por UID y tenemos email, buscar por ID = email
-        if (!snap.exists() && email) {
-          snap = await getDoc(doc(db, 'users', email))
+        // 2) Si no existe y hay email normalizado, buscar por ID = email
+        if (!snap.exists() && normalizedEmail) {
+          snap = await getDoc(doc(db, 'users', normalizedEmail))
         }
 
-        // 3) Fallback opcional: buscar por campo email si el ID fuera aleatorio
-        if (!snap.exists() && email) {
+        // 3) Fallback: buscar por campo "email" == email normalizado
+        if (!snap.exists() && normalizedEmail) {
           const usersRef = collection(db, 'users')
-          const q = query(usersRef, where('email', '==', email))
+          const q = query(usersRef, where('email', '==', normalizedEmail))
           const qSnap = await getDocs(q)
+
           if (!qSnap.empty) {
             snap = qSnap.docs[0]
           }
         }
 
         if (!snap.exists()) {
-          console.log('[auth] user doc not found')
+          console.log('[auth] user doc NOT found for this account')
           setError('Tu correo no está registrado en el sistema. Contacta a un administrador.')
           setUser(null)
           setLoading(false)
